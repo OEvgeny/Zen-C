@@ -11,14 +11,15 @@
 #include "zprep_plugin.h"
 
 // static function for internal use.
-static void codegen_match_internal(ParserContext *ctx, ASTNode *node, FILE *out)
+static char *g_current_func_ret_type = NULL;
+static void codegen_match_internal(ParserContext *ctx, ASTNode *node, FILE *out, int use_result)
 {
     int id = tmp_counter++;
     int is_self = (node->match_stmt.expr->type == NODE_EXPR_VAR &&
                    strcmp(node->match_stmt.expr->var_ref.name, "self") == 0);
 
     char *ret_type = infer_type(ctx, node);
-    int is_expr = (ret_type && strcmp(ret_type, "void") != 0);
+    int is_expr = (use_result && ret_type && strcmp(ret_type, "void") != 0);
 
     fprintf(out, "({ ");
     emit_auto_type(ctx, node->match_stmt.expr, node->token, out);
@@ -149,6 +150,11 @@ static void codegen_match_internal(ParserContext *ctx, ASTNode *node, FILE *out)
             else if (isdigit(c->match_case.pattern[0]) || c->match_case.pattern[0] == '-')
             {
                 // Numeric pattern
+                fprintf(out, "_m_%d == %s", id, c->match_case.pattern);
+            }
+            else if (c->match_case.pattern[0] == '\'')
+            {
+                // Char literal pattern
                 fprintf(out, "_m_%d == %s", id, c->match_case.pattern);
             }
             else
@@ -290,7 +296,7 @@ void codegen_expression(ParserContext *ctx, ASTNode *node, FILE *out)
     switch (node->type)
     {
     case NODE_MATCH:
-        codegen_match_internal(ctx, node, out);
+        codegen_match_internal(ctx, node, out, 1);
         break;
     case NODE_EXPR_BINARY:
         if (strncmp(node->binary.op, "??", 2) == 0 && strlen(node->binary.op) == 2)
@@ -848,13 +854,13 @@ void codegen_expression(ParserContext *ctx, ASTNode *node, FILE *out)
     case NODE_TRY:
     {
         char *type_name = "Result";
-        if (node->try_stmt.expr->type_info && node->try_stmt.expr->type_info->name)
+        if (g_current_func_ret_type)
+        {
+            type_name = g_current_func_ret_type;
+        }
+        else if (node->try_stmt.expr->type_info && node->try_stmt.expr->type_info->name)
         {
             type_name = node->try_stmt.expr->type_info->name;
-        }
-        else if (node->try_stmt.expr->resolved_type)
-        {
-            type_name = node->try_stmt.expr->resolved_type;
         }
 
         if (strcmp(type_name, "__auto_type") == 0 || strcmp(type_name, "unknown") == 0)
@@ -862,14 +868,57 @@ void codegen_expression(ParserContext *ctx, ASTNode *node, FILE *out)
             type_name = "Result";
         }
 
+        char *search_name = type_name;
+        if (strncmp(search_name, "struct ", 7) == 0)
+        {
+            search_name += 7;
+        }
+
+        int is_enum = 0;
+        StructRef *er = ctx->parsed_enums_list;
+        while (er)
+        {
+            if (er->node && er->node->type == NODE_ENUM &&
+                strcmp(er->node->enm.name, search_name) == 0)
+            {
+                is_enum = 1;
+                break;
+            }
+            er = er->next;
+        }
+        if (!is_enum)
+        {
+            ASTNode *ins = ctx->instantiated_structs;
+            while (ins)
+            {
+                if (ins->type == NODE_ENUM && strcmp(ins->enm.name, search_name) == 0)
+                {
+                    is_enum = 1;
+                    break;
+                }
+                ins = ins->next;
+            }
+        }
+
         fprintf(out, "({ ");
         emit_auto_type(ctx, node->try_stmt.expr, node->token, out);
         fprintf(out, " _try = ");
         codegen_expression(ctx, node->try_stmt.expr, out);
-        fprintf(out,
-                "; if (_try.tag == %s_Err_Tag) return (%s_Err(_try.data.Err)); "
-                "_try.data.Ok; })",
-                type_name, type_name);
+
+        if (is_enum)
+        {
+            fprintf(out,
+                    "; if (_try.tag == %s_Err_Tag) return (%s_Err(_try.data.Err)); "
+                    "_try.data.Ok; })",
+                    search_name, search_name);
+        }
+        else
+        {
+            fprintf(out,
+                    "; if (!_try.is_ok) return %s_Err(_try.err); "
+                    "_try.val; })",
+                    search_name);
+        }
         break;
     }
     case NODE_RAW_STMT:
@@ -1149,6 +1198,10 @@ void codegen_node_single(ParserContext *ctx, ASTNode *node, FILE *out)
     }
     switch (node->type)
     {
+    case NODE_MATCH:
+        codegen_match_internal(ctx, node, out, 0); // 0 = statement context
+        fprintf(out, ";\n");
+        break;
     case NODE_FUNCTION:
         if (!node->func.body)
         {
@@ -1320,11 +1373,14 @@ void codegen_node_single(ParserContext *ctx, ASTNode *node, FILE *out)
         }
         fprintf(out, "%s %s(%s)\n", node->func.ret_type, node->func.name, node->func.args);
         fprintf(out, "{\n");
+        char *prev_ret = g_current_func_ret_type;
+        g_current_func_ret_type = node->func.ret_type;
         codegen_walker(ctx, node->func.body, out);
         for (int i = defer_count - 1; i >= 0; i--)
         {
             codegen_node_single(ctx, defer_stack[i], out);
         }
+        g_current_func_ret_type = prev_ret;
         fprintf(out, "}\n");
         break;
 
@@ -1500,8 +1556,6 @@ void codegen_node_single(ParserContext *ctx, ASTNode *node, FILE *out)
             if (node->var_decl.init_expr)
             {
                 inferred = infer_type(ctx, node->var_decl.init_expr);
-                fprintf(stderr, "DEBUG: var '%s' inferred = '%s'\n", node->var_decl.name,
-                        inferred ? inferred : "(null)");
             }
 
             if (inferred && strcmp(inferred, "__auto_type") != 0)
@@ -1682,14 +1736,18 @@ void codegen_node_single(ParserContext *ctx, ASTNode *node, FILE *out)
         fprintf(out, "for (");
         if (strstr(g_config.cc, "tcc"))
         {
-            fprintf(out, "__typeof__((%s)) %s = ", node->for_range.start, node->for_range.var_name);
+            fprintf(out, "__typeof__((");
+            codegen_expression(ctx, node->for_range.start, out);
+            fprintf(out, ")) %s = ", node->for_range.var_name);
         }
         else
         {
             fprintf(out, "__auto_type %s = ", node->for_range.var_name);
         }
-        fprintf(out, "%s; %s < %s; %s", node->for_range.start, node->for_range.var_name,
-                node->for_range.end, node->for_range.var_name);
+        codegen_expression(ctx, node->for_range.start, out);
+        fprintf(out, "; %s < ", node->for_range.var_name);
+        codegen_expression(ctx, node->for_range.end, out);
+        fprintf(out, "; %s", node->for_range.var_name);
         if (node->for_range.step)
         {
             fprintf(out, " += %s) ", node->for_range.step);

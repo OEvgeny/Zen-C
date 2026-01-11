@@ -242,8 +242,8 @@ struct ASTNode
         struct
         {
             char *var_name;
-            char *start;
-            char *end;
+            ASTNode *start;
+            ASTNode *end;
             char *step;
             ASTNode *body;
         } for_range;

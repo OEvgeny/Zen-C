@@ -194,26 +194,38 @@ char *infer_type(ParserContext *ctx, ASTNode *node)
             }
         }
 
-        // Check if it's a function pointer or built-in registered as a symbol.
         if (node->call.callee->type == NODE_EXPR_VAR)
         {
             Symbol *sym = find_symbol_entry(ctx, node->call.callee->var_ref.name);
-            if (sym && sym->type_info)
+            if (sym && sym->type_info && sym->type_info->kind == TYPE_FUNCTION &&
+                sym->type_info->inner)
             {
-                // If it's a function pointer type, return return type.
-                if (sym->type_info->kind == TYPE_FUNCTION && sym->type_info->inner)
+                return type_to_string(sym->type_info->inner);
+            }
+        }
+    }
+
+    if (node->type == NODE_TRY)
+    {
+        char *inner_type = infer_type(ctx, node->try_stmt.expr);
+        if (inner_type)
+        {
+            // Extract T from Result<T> or Option<T>
+            char *start = strchr(inner_type, '<');
+            if (start)
+            {
+                start++; // Skip <
+                char *end = strrchr(inner_type, '>');
+                if (end && end > start)
                 {
-                    return type_to_string(sym->type_info->inner);
-                }
-                if (sym->type_info->kind == TYPE_POINTER && sym->type_info->inner &&
-                    sym->type_info->inner->kind == TYPE_FUNCTION && sym->type_info->inner->inner)
-                {
-                    return type_to_string(sym->type_info->inner->inner);
+                    int len = end - start;
+                    char *extracted = xmalloc(len + 1);
+                    strncpy(extracted, start, len);
+                    extracted[len] = 0;
+                    return extracted;
                 }
             }
         }
-
-        return NULL;
     }
 
     if (node->type == NODE_EXPR_MEMBER)

@@ -192,6 +192,13 @@ int main(int argc, char **argv)
     // Initialize Plugin Manager
     zptr_plugin_mgr_init();
 
+    // Parse context init
+    ParserContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
+
+    // Scan for build directives (e.g. //> link: -lm)
+    scan_build_directives(&ctx, src);
+
     // Register built-in plugins
     extern ZPlugin brainfuck_plugin;
     extern ZPlugin befunge_plugin;
@@ -210,9 +217,6 @@ int main(int argc, char **argv)
     Lexer l;
     lexer_init(&l, src);
 
-    // Parse
-    ParserContext ctx;
-    memset(&ctx, 0, sizeof(ctx));
     ctx.hoist_out = tmpfile(); // Temp file for plugin hoisting
     if (!ctx.hoist_out)
     {
@@ -262,8 +266,9 @@ int main(int argc, char **argv)
     // TCC-specific adjustments?
     // Already handled by user passing --cc tcc
 
-    snprintf(cmd, sizeof(cmd), "%s %s %s -o %s out.c -lm -lpthread -I./src", g_config.cc,
-             g_config.gcc_flags, g_config.is_freestanding ? "-ffreestanding" : "", outfile);
+    snprintf(cmd, sizeof(cmd), "%s %s %s %s %s -o %s out.c -lm -lpthread -I./src %s", g_config.cc,
+             g_config.gcc_flags, g_cflags, g_config.is_freestanding ? "-ffreestanding" : "", "",
+             outfile, g_link_flags);
 
     if (g_config.verbose)
     {

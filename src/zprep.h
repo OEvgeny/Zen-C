@@ -64,6 +64,8 @@ typedef enum
     TOK_DCOLON,
     TOK_TRAIT,
     TOK_IMPL,
+    TOK_AND,
+    TOK_OR,
     TOK_FOR,
     TOK_COMPTIME,
     TOK_ELLIPSIS,
@@ -181,5 +183,10 @@ typedef struct
 } CompilerConfig;
 
 extern CompilerConfig g_config;
+extern char g_link_flags[];
+extern char g_cflags[];
+
+struct ParserContext;
+void scan_build_directives(struct ParserContext *ctx, const char *src);
 
 #endif

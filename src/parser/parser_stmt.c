@@ -1168,10 +1168,6 @@ ASTNode *parse_var_decl(ParserContext *ctx, Lexer *l)
                 type_obj = type_new(TYPE_STRUCT);
                 type_obj->name = xstrdup(type);
             }
-
-            // fprintf(stderr, "DEBUG PVarDecl: Var '%s' inferred type '%s'
-            // (init->type_info present: %d)\n", name, type, init && init->type_info ?
-            // 1 : 0);
         }
     }
 
@@ -1553,21 +1549,18 @@ ASTNode *parse_for(ParserContext *ctx, Lexer *l)
 
         if (in_tok.type == TOK_IDENT && strncmp(in_tok.start, "in", 2) == 0)
         {
-            Token start_tok = lexer_next(l);
-            if (lexer_next(l).type == TOK_DOTDOT)
+            ASTNode *start_expr = parse_expression(ctx, l);
+            if (lexer_peek(l).type == TOK_DOTDOT)
             {
-                Token end_tok = lexer_next(l);
+                lexer_next(l); // consume ..
+                ASTNode *end_expr = parse_expression(ctx, l);
 
                 ASTNode *n = ast_create(NODE_FOR_RANGE);
                 n->for_range.var_name = xmalloc(var.len + 1);
                 strncpy(n->for_range.var_name, var.start, var.len);
                 n->for_range.var_name[var.len] = 0;
-                n->for_range.start = xmalloc(start_tok.len + 1);
-                strncpy(n->for_range.start, start_tok.start, start_tok.len);
-                n->for_range.start[start_tok.len] = 0;
-                n->for_range.end = xmalloc(end_tok.len + 1);
-                strncpy(n->for_range.end, end_tok.start, end_tok.len);
-                n->for_range.end[end_tok.len] = 0;
+                n->for_range.start = start_expr;
+                n->for_range.end = end_expr;
 
                 if (lexer_peek(l).type == TOK_IDENT && strncmp(lexer_peek(l).start, "step", 4) == 0)
                 {
@@ -2118,6 +2111,10 @@ ASTNode *parse_statement(ParserContext *ctx, Lexer *l)
             else if (next_type == TOK_DOTDOT)
             {
                 lexer_next(l); // consume ..
+                if (lexer_peek(l).type == TOK_SEMICOLON)
+                {
+                    lexer_next(l); // consume optional ;
+                }
             }
 
             ASTNode *n = ast_create(NODE_RAW_STMT);

@@ -79,7 +79,7 @@ Token lexer_next(Lexer *l)
         }
         l->pos += len;
         l->col += len;
-        return (Token){TOK_COMMENT, s, len, start_line, start_col};
+        return lexer_next(l);
     }
 
     // Identifiers.
@@ -149,6 +149,14 @@ Token lexer_next(Lexer *l)
         if (len == 5 && strncmp(s, "await", 5) == 0)
         {
             return (Token){TOK_AWAIT, s, 5, start_line, start_col};
+        }
+        if (len == 3 && strncmp(s, "and", 3) == 0)
+        {
+            return (Token){TOK_AND, s, 3, start_line, start_col};
+        }
+        if (len == 2 && strncmp(s, "or", 2) == 0)
+        {
+            return (Token){TOK_OR, s, 2, start_line, start_col};
         }
 
         // F-Strings

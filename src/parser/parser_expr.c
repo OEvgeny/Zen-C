@@ -245,6 +245,16 @@ Precedence get_token_precedence(Token t)
         return PREC_OR;
     }
 
+    if (t.type == TOK_OR)
+    {
+        return PREC_OR;
+    }
+
+    if (t.type == TOK_AND)
+    {
+        return PREC_AND;
+    }
+
     if (t.type == TOK_QQ_EQ)
     {
         return PREC_ASSIGNMENT;
@@ -1247,6 +1257,7 @@ ASTNode *parse_primary(ParserContext *ctx, Lexer *l)
                             free(acc);
                             acc = tmp;
                         }
+
                         else
                         {
                             char *tmp = xmalloc(strlen(mod->base_name) + suffix.len + 2);
@@ -3096,6 +3107,14 @@ ASTNode *parse_expr_prec(ParserContext *ctx, Lexer *l, Precedence min_prec)
         {
             bin->binary.op = xstrdup(">");
         }
+        else if (op.type == TOK_AND)
+        {
+            bin->binary.op = xstrdup("&&");
+        }
+        else if (op.type == TOK_OR)
+        {
+            bin->binary.op = xstrdup("||");
+        }
         else
         {
             bin->binary.op = token_strdup(op);
@@ -3465,6 +3484,27 @@ ASTNode *parse_expr_prec(ParserContext *ctx, Lexer *l, Precedence min_prec)
                 char *t2 = type_to_string(rhs->type_info);
                 // Skip type check if either operand is void* (escape hatch type)
                 int skip_check = (strcmp(t1, "void*") == 0 || strcmp(t2, "void*") == 0);
+
+                // Allow comparing pointers/strings with integer literal 0 (NULL)
+                if (!skip_check)
+                {
+                    int lhs_is_ptr =
+                        (lhs->type_info->kind == TYPE_POINTER ||
+                         lhs->type_info->kind == TYPE_STRING || (t1 && strstr(t1, "*")));
+                    int rhs_is_ptr =
+                        (rhs->type_info->kind == TYPE_POINTER ||
+                         rhs->type_info->kind == TYPE_STRING || (t2 && strstr(t2, "*")));
+
+                    if (lhs_is_ptr && rhs->type == NODE_EXPR_LITERAL && rhs->literal.int_val == 0)
+                    {
+                        skip_check = 1;
+                    }
+                    if (rhs_is_ptr && lhs->type == NODE_EXPR_LITERAL && lhs->literal.int_val == 0)
+                    {
+                        skip_check = 1;
+                    }
+                }
+
                 if (!skip_check && !type_eq(lhs->type_info, rhs->type_info))
                 {
                     char msg[256];
@@ -3493,8 +3533,10 @@ ASTNode *parse_expr_prec(ParserContext *ctx, Lexer *l, Precedence min_prec)
                     if (strcmp(bin->binary.op, "+") == 0 || strcmp(bin->binary.op, "-") == 0)
                     {
                         int lhs_is_ptr = (lhs->type_info->kind == TYPE_POINTER ||
+                                          lhs->type_info->kind == TYPE_STRING ||
                                           (t1 && strstr(t1, "*") != NULL));
                         int rhs_is_ptr = (rhs->type_info->kind == TYPE_POINTER ||
+                                          rhs->type_info->kind == TYPE_STRING ||
                                           (t2 && strstr(t2, "*") != NULL));
                         int lhs_is_int =
                             (lhs->type_info->kind == TYPE_INT || lhs->type_info->kind == TYPE_I32 ||

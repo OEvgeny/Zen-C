@@ -2148,9 +2148,10 @@ char *rewrite_expr_methods(ParserContext *ctx, char *raw)
 
             dest -= strlen(acc);
 
-            if (*src == '(')
+            Module *mod = find_module(ctx, acc);
+            if (mod && mod->is_c_header)
             {
-                dest += sprintf(dest, "%s_%s", acc, field);
+                dest += sprintf(dest, "%s", field);
             }
             else
             {

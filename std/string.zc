@@ -26,6 +26,10 @@ impl String {
     fn c_str(self) -> char* {
         return self.vec.data;
     }
+
+    fn destroy(self) {
+        self.vec.free();
+    }
     
     fn append(self, other: String) {
         self.vec.len = self.vec.len - 1;
